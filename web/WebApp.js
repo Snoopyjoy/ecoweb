@@ -8,6 +8,7 @@ const Session = require("./../model/Session");
 const Utils = require("./../utils/Utils");
 const CODES = require("./../ErrorCodes");
 const WRP = require("./WebRequestPreprocess");
+const Redis = require("../model/Redis");
 
 const ParamsChecker = require("../utils/ParamsChecker");
 const AuthorityChecker = require("../utils/AuthorityChecker");
@@ -165,6 +166,17 @@ App.post("/api", async function (req, res) {
                 } else if (security.needLogin) {
                     return res.sayError(CODES.NO_PERMISSION, "NO_PERMISSION");
                 }
+                if (security.rateLimit) {        //节流
+                    try{
+                        const throttleTypeVal = security.rateLimit.type === "ip" || !user.isLogined ? req._clientIP : user.id;
+                        const throttleDuration = security.rateLimit.duration || 1000;
+                        const throttleTimes = security.rateLimit.times || 1;
+                        await Redis.rateLimit( `api_${req.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
+                    }catch (e) {
+                        res.status(503);
+                        return res.end();
+                    }
+                }
                 let ret = await doJob(params, user, req, res);
                 res.sayOK(ret);
             } catch (err) {
@@ -201,9 +213,34 @@ App.COMMON_RESPONSE_DATA = {};
 function registerRouter(router) {
     if (!router.url) return;
 
-    App.all(router.url, function (req, res) {
-
+    App.all(router.url, async function (req, res) {
         let r = router;
+        req.$target = r.url + "@" + req.method;
+        const now = Date.now();
+        const output = function(view, user, data, err) {
+            data = data ? data : {};
+            user = user || { isLogined:false };
+            if (err) {
+                res.render("error", { setting:App.COMMON_RESPONSE_DATA, err, user, now, query:req.query, ...App.injectRenderArguments(view, user, data, req, res) });
+            } else {
+                res.render(view, { setting:App.COMMON_RESPONSE_DATA, data, user, now, query:req.query, ...App.injectRenderArguments(view, user, data, req, res) });
+            }
+            res.profile();
+        }.bind(res);
+
+        try{
+            let limitType = r.rateLimit.type;
+            if( !r.needLogin ) limitType = "ip";
+            if(r.rateLimit && limitType === "ip"){       //ip限流检测
+                const throttleDuration = r.rateLimit.duration || 1000;
+                const throttleTimes = r.rateLimit.times || 1;
+                    await Redis.rateLimit( `api_${r.$target}_${req._clientIP}`, throttleDuration, throttleTimes );
+            }
+        }catch (err) {
+            res.status(503);
+            return res.end();
+        }
+
         if (r.mobile) {
             req.__isMobile = Utils.isFromMobile(req);
             if (req.__isMobile && ROUTER_MAP[r.mobile]) {
@@ -221,32 +258,33 @@ function registerRouter(router) {
         App.handleUserSession(req, res, auth).then(async user => {
             const now = Date.now();
 
-            if (router.needLogin && !(user && user.isLogined)) {
+            if (r.needLogin && !(user && user.isLogined)) {
                 return App.authFailHandler(req, res, r, user);
             }
 
-            const output = function(view, user, data, err) {
-                data = data ? data : {};
-                if (err) {
-                    res.render("error", { setting:App.COMMON_RESPONSE_DATA, err, user, now, query:req.query, ...App.injectRenderArguments(view, user, data, req, res) });
-                } else {
-                    res.render(view, { setting:App.COMMON_RESPONSE_DATA, data, user, now, query:req.query, ...App.injectRenderArguments(view, user, data, req, res) });
-                }
-                res.profile();
-            }.bind(res);
-
-            if (router.allow) {
+            if (r.allow) {
                 try {
-                    await AuthorityChecker.check(user, router.allow);
+                    await AuthorityChecker.check(user, r.allow);
                 } catch (err) {
                     return App.authFailHandler(req, res, r, user);
+                }
+            }
+
+            if( r.rateLimit && r.needLogin && limitType != "ip"){       //userid限流检测
+                const throttleTypeVal = r.rateLimit.type === "ip" || !user.isLogined ? req._clientIP : user.id;
+                const throttleDuration = r.rateLimit.duration || 1000;
+                const throttleTimes = r.rateLimit.times || 1;
+                try {
+                    await Redis.rateLimit( `api_${r.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
+                } catch (err) {
+                    res.status(503);
+                    return res.end();
                 }
             }
 
             let r_handle = null;
 
             req.$startTime = now;
-            req.$target = r.url + "@" + req.method;
 
             if (req.method === "POST"){
                 if (r.postHandle) r_handle = r.postHandle;

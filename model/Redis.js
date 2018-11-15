@@ -456,6 +456,32 @@ exports.join = function(key, preKey) {
     return KEY_CACHE[redisKey];
 }
 
+/**
+ * @description 节流函数
+ * @param redisKey
+ * @param duration 时间范围
+ * @param times 触发次数
+ */
+exports.rateLimit = function( redisKey, duration, times , callback ){
+    return new Promise(async (resolve, reject)=>{
+        try {
+            const fullThrottleKey = exports.join( redisKey + "_redisLock");
+            const curVal = await exports.do("INCR" , [ fullThrottleKey ]);
+            if( Number(curVal) === 1 ){
+                await exports.do("PEXPIRE" , [ fullThrottleKey, duration ]);
+            }
+            if( curVal > times ){
+                throw new Error("req limited!");
+            }
+            callback && callback();
+            resolve();
+        }catch (e) {
+            callback && callback(e);
+            reject(e);
+        }
+    });
+}
+
 exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetry, p) {
     var promise = new Promise(function (resolve, reject) {
         var pins = this;
@@ -474,7 +500,7 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
                 if (callBack) return callBack(err);
                 return reject(err);
             } else {
-                var isLocked = res == 0;
+                var isLocked = res === 0;
                 if (isLocked) {
                     DEBUG && console.log(`found lock, wait ---> lock key: ${lockKey}`);
                     if (currentRetry >= maxRetry) {

@@ -714,6 +714,7 @@ exports.parseIP = function (req) {
             req.socket.remoteAddress ||
             req.connection.socket.remoteAddress;
         if (ip === "::1" || ip === "127.0.0.1") ip = "0.0.0.0";
+        ip = ip.replace(/::ffff:/, '');
         return ip;
     } catch (err) {
         return "unknown"
