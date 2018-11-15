@@ -1,6 +1,6 @@
 {
-  "name": "weroll",
-  "version": "1.5.9",
+  "name": "ecoweb",
+  "version": "1.0.1",
   "description": "Build Your Web Application Fast and Less Codes.",
   "main": "index.js",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jayliang701/weroll.git"
+    "url": "git+https://github.com/Snoopyjoy/weroll.git"
   },
   "keywords": [
     "web",
@@ -55,5 +55,5 @@
     "socket.io-redis": "^3.1.0",
     "uuid": "^3.2.1"
   },
-  "readme": "极速搭建一个基于微服务架构的Node.js应用程序，用最小的代码实现常见的web业务。<br><br>使用weroll-cli快速创建一个web程序骨架：<br><pre>$ npm install -g weroll-cli<br>$ weroll-cli init mini DemoApp<br>$ cd DemoApp<br>$ node main.js</pre>然后使用浏览器打开页面：<pre>http://localhost:3000/</pre>Now, let's roll！<br><br><br>访问Github主页 <a href='https://github.com/jayliang701/weroll#readme' target='_blank'>https://github.com/jayliang701/weroll</a> 了解更多。"
+  "homepage": "https://github.com/Snoopyjoy/weroll#readme"
 }
