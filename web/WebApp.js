@@ -167,13 +167,14 @@ App.post("/api", async function (req, res) {
                     return res.sayError(CODES.NO_PERMISSION, "NO_PERMISSION");
                 }
                 if (security.rateLimit) {        //节流
+                    const throttleTypeVal = security.rateLimit.type === "ip" || !user.isLogined ? req._clientIP : user.id;
+                    const throttleDuration = security.rateLimit.duration || 1000;
+                    const throttleTimes = security.rateLimit.times || 1;
                     try{
-                        const throttleTypeVal = security.rateLimit.type === "ip" || !user.isLogined ? req._clientIP : user.id;
-                        const throttleDuration = security.rateLimit.duration || 1000;
-                        const throttleTimes = security.rateLimit.times || 1;
                         await Redis.rateLimit( `api_${req.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
                     }catch (e) {
-                        res.status(503);
+                        res.setHeader("Retry-After", Math.ceil(throttleDuration/1000) );
+                        res.status(429);
                         return res.end();
                     }
                 }
@@ -277,7 +278,8 @@ function registerRouter(router) {
                 try {
                     await Redis.rateLimit( `api_${r.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
                 } catch (err) {
-                    res.status(503);
+                    res.setHeader("Retry-After", Math.ceil(throttleDuration/1000) );
+                    res.status(429);
                     return res.end();
                 }
             }
