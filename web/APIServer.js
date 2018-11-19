@@ -150,19 +150,19 @@ function APIServer() {
         if (typeof callBack !== "function") callBack = null;
         method = method.split(".");
 
-        return new Promise(function (resolve, reject) {
-
+        return new Promise(async (resolve, reject)=>{
             let service = SERVICE_MAP[method[0]];
             if (!service || !service.hasOwnProperty(method[1])) {
                 let err = Error.create(CODES.NO_SUCH_METHOD, "NO_SUCH_METHOD");
                 if (callBack) return callBack(err);
                 return reject(err);
             }
-            req.__callAPI(service[method[1]], params, user, function(err, data) {
-                if (callBack) return callBack(err, data);
-                if (err) reject(err);
-                else resolve(data);
-            });
+            try {
+                const result = await service[ method[1] ]( params, user, req );
+                resolve( result );
+            }catch (e) {
+                reject(e);
+            }
         });
     };
 

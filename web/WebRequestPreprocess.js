@@ -127,42 +127,6 @@ function sayOK(data, headers) {
     outputData.apply(this, [ data, headers ])
 }
 
-function __callAPI(func, params, user, callBack) {
-    var req = this;
-    var res = {};
-    res.sayError = function() {
-        var code, msg;
-        if (arguments[0].constructor == Error && arguments[0].hasOwnProperty("code")) {
-            callBack && callBack(arguments[0]);
-            return;
-        }
-        if (arguments.length === 1 && arguments[0]) {
-            if (arguments[0] instanceof Array) {
-                code = arguments[0][0];
-                msg = arguments[0][1];
-            } else {
-                code = CODES.SERVER_ERROR;
-                msg = arguments[0].toString();
-            }
-        } else {
-            code = arguments[0] == undefined ? CODES.SERVER_ERROR : arguments[0];
-            msg = arguments[1];
-        }
-        if (!msg) {
-            msg = "unknown";
-        } else if (typeof msg === 'object') {
-            msg = msg.toString();
-        }
-        callBack && callBack(Error.create(code, msg));
-    };
-    res.sayOK = function(data) {
-        callBack && callBack(null, data);
-    }
-    res.exec = exec.bind(res);
-
-    func(req, res, params, user);
-}
-
 function sendBinary(data, mime, headers) {
     var responseHeader = {
         "Content-Type": mime,
@@ -202,16 +166,12 @@ function preprocess(req, res, next) {
     req._res = res;
     res._req = req;
     req._clientIP = Utils.parseIP(req);
-
-    req.__callAPI = __callAPI.bind(req);
-
     let identifyid = req.cookies.identifyid;
     if (!identifyid) {
         identifyid = Utils.md5(req.headers["user-agent"] + req._clientIP + Date.now());
         res.cookie("identifyid", identifyid);
     }
     req._identifyID = identifyid;
-
     res.exec = exec.bind(res);
     res.sayError = sayError.bind(res);
     res.sayOK = sayOK.bind(res);
