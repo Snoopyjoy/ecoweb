@@ -229,12 +229,14 @@ function registerRouter(router) {
         }.bind(res);
 
         try{
-            let limitType = r.rateLimit.type;
-            if( !r.needLogin ) limitType = "ip";
-            if(r.rateLimit && limitType === "ip"){       //ip限流检测
-                const throttleDuration = r.rateLimit.duration || 1000;
-                const throttleTimes = r.rateLimit.times || 1;
+            if( r.rateLimit ){
+                let limitType = r.rateLimit.type;
+                if( !r.needLogin ) limitType = "ip";
+                if(r.rateLimit && limitType === "ip"){       //ip限流检测
+                    const throttleDuration = r.rateLimit.duration || 1000;
+                    const throttleTimes = r.rateLimit.times || 1;
                     await Redis.rateLimit( `api_${r.$target}_${req._clientIP}`, throttleDuration, throttleTimes );
+                }
             }
         }catch (err) {
             res.status(503);
