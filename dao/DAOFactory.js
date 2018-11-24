@@ -150,16 +150,6 @@ function inject(schema) {
         });
     });
 
-    schema.static("$lock", function(identifyID, callBack) {
-        var lockKey = "@common->dblock_" + schema.$CollectionName + "_" + identifyID;
-        return Redis.checkLock(lockKey, callBack);
-    });
-
-    schema.static("$releaseLock", function(identifyID, callBack) {
-        var lockKey = "@common->dblock_" + schema.$CollectionName + "_" + identifyID;
-        return Redis.releaseLock(lockKey, callBack);
-    });
-
     schema.static("search", function(filter) {
         var ins = this;
         var query;
@@ -234,13 +224,6 @@ function inject(schema) {
             });
         });
     });
-}
-
-exports.releaseDBLocks = function(callBack) {
-    console.log("release db locks...");
-    var prefix = Redis.join("@common->dblock");
-    var key = prefix + "_*";
-    return Redis.findKeysAndDel(key, callBack);
 }
 
 exports.create = function(name) {
