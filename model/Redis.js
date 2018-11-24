@@ -36,6 +36,8 @@ var CACHE_PREFIX = "CACHE_";
 
 var SEP = ".";
 
+const LOCK_KEY_PREFIX = "RDS_LOCK";
+
 exports.addEventListener = function(type, handler) {
     Dispatcher.addListener(type, handler);
 }
@@ -232,8 +234,24 @@ exports.pushIntoList = function(key, value, callBack) {
     });
 }
 
-exports.searchKeys = function( key, callBack ){
-    //TODO:使用Scan 搜索key
+exports.searchKeys = function( keyword, callBack ){
+    return new Promise( async function( resolve, reject ){
+        let keyArr = [];
+        let cursor = 0;          //游标
+        try {
+            do{
+                const result = await exports.do("SCAN" , [ cursor, "MATCH", keyword ] );
+                cursor = result[0];
+                const newKeys = result[1];
+                keyArr = keyArr.concat( newKeys );
+            }while ( Number(cursor) > 0  )
+            callBack&&callBack( null, keyArr );
+            resolve( keyArr );
+        }catch (e) {
+            callBack&&callBack(e);
+            reject(e);
+        }
+    } );
 }
 
 exports.getFromList = function(key, fromIndex, toIndex, callBack) {
@@ -346,10 +364,7 @@ exports.delHashField = function(key, fields, callBack) {
 
 exports.findKeysAndDel = function(keyword, callBack) {
     return new Promise(function (resolve, reject) {
-        //TODO:修改keys命令为scan
-        if (callBack) return callBack(null, 0);
-        return resolve({});
-        client.keys(keyword, function(err, keys) {
+        exports.searchKeys(keyword, function(err, keys) {
             if (err) {
                 if (callBack) return callBack(err);
                 return reject(err);
@@ -490,56 +505,64 @@ exports.rateLimit = function( redisKey, duration, times , callback ){
 }
 
 exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetry, p) {
-    var promise = new Promise(function (resolve, reject) {
+    var promise = new Promise( async function (resolve, reject) {
         var pins = this;
         if (p) {
+            resolve();
             resolve = p.resolve;
             reject = p.reject;
         }
         timeout = timeout || 10;
         currentRetry = currentRetry || 0;
-        checkDelay = checkDelay || 20;
-        var maxRetry = Math.ceil((timeout * 1000) / checkDelay);
-        var fullLockKey = exports.join(lockKey + "_redisLock");
-        exports.do("SETNX", [ fullLockKey, Date.now() ], function(err, res) {
-            if (err) {
-                console.error(`check lock *${lockKey}* error ---> ${err}`);
-                if (callBack) return callBack(err);
-                return reject(err);
-            } else {
-                var isLocked = res === 0;
-                if (isLocked) {
-                    DEBUG && console.log(`found lock, wait ---> lock key: ${lockKey}`);
-                    if (currentRetry >= maxRetry) {
-                        err = new Error("access locked");
-                        if (callBack) return callBack(err);
-                        return reject(err);
-                    }
-                    currentRetry ++;
-                    setTimeout(function() {
-                        DEBUG && console.log("check lock retry ---> " + currentRetry);
-                        exports.checkLock(lockKey, callBack, checkDelay, timeout, currentRetry, { resolve:resolve.bind(pins), reject:reject.bind(pins) });
-                    }, checkDelay == undefined ? 10 : Number(checkDelay));
-                } else {
-                    if (setting && setting.maxLockTime) {
-                        client.expire(fullLockKey, setting.maxLockTime, function() {
-                            if (callBack) return callBack();
-                            return resolve();
-                        });
-                    } else {
+        checkDelay = checkDelay || 50;
+        const maxRetry = Math.ceil((timeout * 1000) / checkDelay);
+        const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
+        const now = Date.now();
+        try {
+            const lockFlag = await exports.do("HSETNX", [ LOCK_GROUP_KEY, lockKey, now ] );//, async function(err, res) {
+            const isLocked = lockFlag === 0;
+            if( isLocked ){
+                if( setting && setting.maxLockTime ){
+                    const lockTime = await exports.do( "HGET", [ LOCK_GROUP_KEY, lockKey ] );
+                    if( ( now - Number(lockTime) ) > setting.maxLockTime ){     //延时超过锁最大时间
+                        await exports.do( "HDEL", [ LOCK_GROUP_KEY, lockKey ] );
                         if (callBack) return callBack();
                         return resolve();
                     }
                 }
+                DEBUG && console.log(`found lock, wait ---> lock key: ${lockKey}`);
+
+                if (currentRetry >= maxRetry) {
+                    const err = new Error("access locked");
+                    if (callBack) return callBack(err);
+                    return reject(err);
+                }
+                currentRetry ++;
+                setTimeout(function() {
+                    DEBUG && console.log("check lock retry ---> " + currentRetry);
+                    exports.checkLock(lockKey, callBack, checkDelay, timeout, currentRetry, { resolve: resolve.bind(pins), reject: reject.bind(pins) });
+                }, checkDelay == undefined ? 50 : Number(checkDelay));
+            }else{
+                if (callBack) return callBack();
+                return resolve();
             }
-        });
+        }catch (err) {
+            console.error(`check lock *${lockKey}* error ---> ${err}`);
+            if (callBack) return callBack(err);
+            return reject(err);
+        }
     });
     return promise;
 }
 
 exports.releaseLock = function(lockKey, callBack) {
-    return new Promise(function (resolve, reject) {
-        exports.do("DEL", [ exports.join(lockKey + "_redisLock") ], function(err, res) {
+    const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
+    return new Promise(async function (resolve, reject) {
+        try{
+            await exports.do( "HDEL", [ LOCK_GROUP_KEY, lockKey ] );
+            if (callBack) return callBack();
+            resolve();
+        }catch (err) {
             if (err) console.error(`release lock *${lockKey}* error ---> ${err}`);
             if (callBack) return callBack(err);
             if (err) {
@@ -547,20 +570,21 @@ exports.releaseLock = function(lockKey, callBack) {
             } else {
                 resolve();
             }
-        });
+        }
     });
 }
 
 exports.releaseAllLocks = function(callBack) {
-    return new Promise(function (resolve, reject) {
-        exports.findKeysAndDel("*_redisLock", function(err, num) {
-            if (callBack) return callBack(err, num);
-            if (err) {
-                reject(err);
-            } else {
-                resolve(num);
-            }
-        });
+    const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
+    return new Promise(async function (resolve, reject) {
+        try {
+            await exports.do( "DEL", [ LOCK_GROUP_KEY ] );
+            callBack && callBack();
+            resolve();
+        }catch (e) {
+            callBack && callBack(e);
+            reject(e);
+        }
     });
 }
 
