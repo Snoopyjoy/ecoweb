@@ -232,6 +232,10 @@ exports.pushIntoList = function(key, value, callBack) {
     });
 }
 
+exports.searchKeys = function( key, callBack ){
+    //TODO:使用Scan 搜索key
+}
+
 exports.getFromList = function(key, fromIndex, toIndex, callBack) {
     return new Promise(function (resolve, reject) {
         client.lrange(exports.join(key), fromIndex, toIndex, function(err, res) {
@@ -342,6 +346,9 @@ exports.delHashField = function(key, fields, callBack) {
 
 exports.findKeysAndDel = function(keyword, callBack) {
     return new Promise(function (resolve, reject) {
+        //TODO:修改keys命令为scan
+        if (callBack) return callBack(null, 0);
+        return resolve({});
         client.keys(keyword, function(err, keys) {
             if (err) {
                 if (callBack) return callBack(err);
