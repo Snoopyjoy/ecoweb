@@ -6,13 +6,13 @@ var REDIS = require("redis");
 var UTIL = require('util');
 
 var EventEmitter = require("events").EventEmitter;
+const GTimer = require("../utils/GTimer");
 /*
 function RedisClient() {
     EventEmitter.call(this);
     this.client = null;
 }
 */
-
 var Dispatcher = new EventEmitter();
 var client;
 var setting;
@@ -512,9 +512,9 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
             resolve = p.resolve;
             reject = p.reject;
         }
-        timeout = timeout || 10;
+        timeout = timeout || 10;        //10秒超时
         currentRetry = currentRetry || 0;
-        checkDelay = checkDelay || 50;
+        checkDelay = checkDelay || 20;
         const maxRetry = Math.ceil((timeout * 1000) / checkDelay);
         const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
         const now = Date.now();
@@ -538,10 +538,10 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
                     return reject(err);
                 }
                 currentRetry ++;
-                setTimeout(function() {
+                client.__timer.addTimer( function() {
                     DEBUG && console.log("check lock retry ---> " + currentRetry);
                     exports.checkLock(lockKey, callBack, checkDelay, timeout, currentRetry, { resolve: resolve.bind(pins), reject: reject.bind(pins) });
-                }, checkDelay == undefined ? 50 : Number(checkDelay));
+                }, checkDelay == undefined ? 20 : Number(checkDelay) , "Redis" );
             }else{
                 if (callBack) return callBack();
                 return resolve();
@@ -629,6 +629,10 @@ exports.start = function(option, callBack) {
 
     client.on("error", function(err) {
         client.__working = false;
+        if( client.__timer ){
+            client.__timer.destroy();
+            client.__timer = null;
+        }
         console.error(err);
         if (client.__startCallBack) {
             client.__startCallBack(err);
@@ -638,6 +642,9 @@ exports.start = function(option, callBack) {
     client.on("connect", function() {
         console.log("Redis Server<" + host + ":" + port + "> is connected.");
         client.__working = true;
+        const redisTimer = new GTimer( 20 );        //20毫秒一次循环
+        redisTimer.startTimer();
+        client.__timer = redisTimer;
         if (setting && setting.releaseLockWhenStart) {
             exports.releaseAllLocks(function() {
                 if (client.__startCallBack) {
