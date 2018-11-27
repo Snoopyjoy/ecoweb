@@ -41,7 +41,7 @@ class RedisSessionPayload extends SessionPayload {
             if (this.session.config.onePointEnter) {
                 return resolve([ Redis.join(this.session.formatKey(userid)) ]);
             }
-            Redis.do("keys", [ Redis.join(this.session.formatKey(userid, "*")) ], (err, keys) => {
+            Redis.searchKeys( Redis.join(this.session.formatKey(userid, "*")) , (err, keys) => {
                 if (err) return reject(err);
                 resolve(keys);
             });
