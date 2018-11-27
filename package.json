@@ -1,11 +1,6 @@
 {
-<<<<<<< HEAD
   "name": "ecoweb",
   "version": "1.0.8",
-=======
-  "name": "weroll",
-  "version": "1.6.0",
->>>>>>> master
   "description": "Build Your Web Application Fast and Less Codes.",
   "main": "index.js",
   "scripts": {
