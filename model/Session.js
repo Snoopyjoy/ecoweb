@@ -28,7 +28,7 @@ Session.prototype.save = function (user, extra ) {
     sess.userid = userID;
     sess.type = user.type;
     sess.loginTime = loginTime;
-    return JWT.sign({ id: sess.userid, time: loginTime }, this.config.secret, { expiresIn: expireTime });
+    return JWT.sign(sess, this.config.secret, { expiresIn: expireTime });
 }
 
 Session.prototype.check = function (auth, callBack) {
