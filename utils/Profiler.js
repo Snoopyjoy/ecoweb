@@ -51,7 +51,7 @@ function Profiler(option) {
     this.view = function(callBack, mapFunc) {
         var prefix = Redis.join(`profiling_${this.name}_request_`);
         return new Promise(function(resolve, reject) {
-            Redis.do("keys", [ prefix + "*" ], function(err, keys) {
+            Redis.searchKeys( prefix + "*" , function(err, keys) {
                 if (err) {
                     if (callBack) return callBack(err);
                     return reject(err);
