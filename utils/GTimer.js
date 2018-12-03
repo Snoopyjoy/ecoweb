@@ -13,42 +13,44 @@ function GTimer( updateDelay ){
         default:0
     };
     this.updateDelay = updateDelay || 1000;
-    this.stepGap = updateDelay;
 }
 
-var proto = GTimer.prototype;
+const proto = GTimer.prototype;
 proto.startTimer = function(){
-    var ins = this;
+    let ins = this;
+    if( this.intervalTimer ) clearInterval( this.intervalTimer );
     this.intervalTimer = setInterval(function() {
-        ins.times += ins.stepGap;
+        ins.times += ins.updateDelay;
         ins.execute(true);
     }, this.updateDelay);
 };
 
 proto.stopTimer = function(){
     clearInterval( this.intervalTimer );
-}
+    this.intervalTimer = 0;
+};
 
 proto.execute = function( timer ){
-    for( var group in this.timers ){
+    for( let group in this.timers ){
         if( this.pauseTar[group] == 1 ){
             continue;
         }
-        var groupTimers = this.timers[group];
-        for( var timerID in groupTimers ){
-            var timerDef = groupTimers[timerID];
-            var callback = timerDef.callback;
-            var passed = timerDef.passed;
-            var delay = timerDef.delay;
+        let groupTimers = this.timers[group];
+        for( let timerID in groupTimers ){
+            let timerDef = groupTimers[timerID];
+            let callback = timerDef.callback;
+            let passed = timerDef.passed;
+            let delay = timerDef.delay;
             if(  passed >= delay ){
                 callback && callback.apply(null, timerDef.args  );
                 groupTimers[timerID] = null;
                 delete groupTimers[timerID];
             }
             if( timer ){
-                timerDef.passed += this.stepGap;
+                timerDef.passed += this.updateDelay;
             }
         }
+        groupTimers = null;
     }
 };
 
@@ -70,7 +72,7 @@ proto.addTimer = function( callback, delay , group , agrs ){
     if( !this.timers[group] ){
         this.timers[group] = {};
     }
-    var timerID = this.getTimerID(group);
+    const timerID = this.getTimerID(group);
     this.timers[group][timerID] = {
         id: timerID,
         callback: callback,
@@ -84,7 +86,7 @@ proto.addTimer = function( callback, delay , group , agrs ){
 /*移除定时*/
 proto.removeTimer = function( timerID ){
     if( String( timerID ).hasValue() ){
-        var group = timerID.split("#")[0];
+        let group = timerID.split("#")[0];
         if (this.timers[group]) {
             delete this.timers[group][timerID];
         }
@@ -95,7 +97,7 @@ proto.getTimerByID = function( timerID ){
     if( !String(timerID).hasValue() ){
         return null;
     }
-    var group = timerID.split("#")[0];
+    let group = timerID.split("#")[0];
     if (!this.timers[group]) return null;
     return this.timers[group][timerID];
 };
@@ -105,16 +107,18 @@ proto.changeTimerDelay = function( timerID, delta ){
     if(timerDef){
         timerDef.delay = timerDef.delay + delta;
     }
+    timerDef = null;
 };
 
 proto.getTimerID = function(group){
-    var id = group + "#" + this.times;
-    var tag = 0;
+    let id = group + "#" + this.times;
+    let tag = 0;
     if (!this.timers[group]) return 0;
     while( this.timers[group][ id ] ){
         tag++;
         id = group + "#" + this.times + "#" + tag;
     }
+    tag = null;
     return id;
 };
 
