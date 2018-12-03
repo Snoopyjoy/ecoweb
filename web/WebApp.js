@@ -43,11 +43,12 @@ const callAPI = function(method, params) {
         let service = SERVICE_MAP[method[0]];
         if (!service || !service.hasOwnProperty(method[1])) {
             let err = Error.create(CODES.NO_SUCH_METHOD, "NO_SUCH_METHOD");
-            if (callBack) return callBack(err);
+            if (callBack)callBack(err);
             return reject(err);
         }
         try {
             const result = await service[method[1] ]( params, user, req );
+            if (callBack) callBack(null, result);
             resolve( result );
         }catch (e) {
             reject(e);
@@ -518,3 +519,5 @@ exports.start = function(setting, callBack) {
 
     return App;
 };
+
+exports.$callAPI = callAPI;

@@ -505,7 +505,7 @@ exports.rateLimit = function( redisKey, duration, times , callback ){
 }
 
 exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetry, p) {
-    var promise = new Promise( async function (resolve, reject) {
+    return new Promise( async function (resolve, reject) {
         var pins = this;
         if (p) {
             resolve();
@@ -541,6 +541,8 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
                 client.__timer.addTimer( function() {
                     DEBUG && console.log("check lock retry ---> " + currentRetry);
                     exports.checkLock(lockKey, callBack, checkDelay, timeout, currentRetry, { resolve: resolve.bind(pins), reject: reject.bind(pins) });
+                    lockKey = null; callBack= null; checkDelay= null; timeout= null; currentRetry = null;
+                    resolve = null; reject = null;
                 }, checkDelay == undefined ? 20 : Number(checkDelay) , "Redis" );
             }else{
                 if (callBack) return callBack();
@@ -552,7 +554,6 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
             return reject(err);
         }
     });
-    return promise;
 }
 
 exports.releaseLock = function(lockKey, callBack) {
