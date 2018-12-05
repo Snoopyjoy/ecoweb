@@ -9,9 +9,10 @@ const request = require("min-request");
 
 const WebApp = require("../web/WebApp");
 
-    let Setting = global.SETTING;
+let Setting = global.SETTING;
 const DEBUG = global.VARS.debug;
 
+let redisSub, redisPub;
 const server_notifyHandlers = {};
 const client_registerHandler = {};
 const defaultPingTime = 30000;      //30秒上报一次
@@ -35,7 +36,7 @@ exports.getSetting = function() {
     return Setting.ecosystem;
 }
 
-exports.updateOnlineServers = async function(){
+async function updateOnlineServers(){
     const ecoSetting = exports.getSetting();
     const timeout = ecoSetting.timeout || defaultTimeout;
     const now = Date.now();
@@ -65,6 +66,7 @@ function clearServers(){
 
 async function ping(){
     if( ecoID ){        //
+        DEBUG && console.log( `eco ${ecoID} ping--->` );
         await updateOnlineServers();
         await Redis.do( "ZADD", [ Redis.join( EcoRedisKey ), Date.now(), ecoID ] );
     }
@@ -74,7 +76,7 @@ async function genUUID( group ){
     const uuid = uuidv4();
     const tempID = `${group}_${uuid}`;
     let groupClients = OnlineServers[ group ];
-    if( groupClients.indexOf( tempID ) > -1 ){
+    if( groupClients && groupClients.indexOf( tempID ) > -1 ){
         groupClients = null;
         return await genUUID(group);
     }else{
@@ -177,8 +179,21 @@ exports.callAPI = function() {
 
 exports.__callAPI = function( target, method, params, callBack) {
     return new Promise(function (resolve, reject) {
+        let completeFunc = function( err, result ){
+            if( callBack ){
+                callBack( err, result );
+            }
+            callBack = null;
+            if(err){
+                reject(err);
+            }else{
+                resolve();
+            }
+            reject = null;
+            resolve = null;
+        };
         msgID ++;
-        const task = [ msgID, target, method, params, callBack];
+        const task = [ msgID, target, method, params, completeFunc];
         reqs.push(task);
         reqMap[msgID] = task;
         if ( reqs.length === 1) {
@@ -251,6 +266,8 @@ exports.init = function( customSetting, callBack) {
             if( !isEmpty(customSetting) ){
                 Setting = customSetting;
             }
+            const redisConfig = Setting.ecosystem.redis || global.SETTING.model.redis;
+
             let ecoSetting = exports.getSetting();
             const client = new Client( ecoSetting.name );
             exports.__register( ecoSetting.name, client );
@@ -259,13 +276,30 @@ exports.init = function( customSetting, callBack) {
             await Redis.do( "ZADD", [ Redis.join( EcoRedisKey ), Date.now(), ecoID ] );
             const pingTime = ecoSetting.pingTime || defaultPingTime;
             pingTimerID = setInterval( ping, pingTime );
-            Redis.on( "message", messageHandler );
-            Redis.subscribe( Redis.join( EocChannel ) );            //侦听针对所有对象的广播消息
-            Redis.subscribe( Redis.join( `${EocChannel}_${ecoID}` ) );                 //侦听针对自己的广播消息
-            Redis.subscribe( Redis.join( `${EocChannel}_${ecoSetting.name}` ) );       //侦听针对本组的广播消息
             timer = new GTimer( 1000 );        //1秒一次循环
-            callBack && callBack();
-            resolve();
+
+            function redisReady() {
+                if (!redisSub.__ready || !redisPub.__ready ) return;
+                const func = callBack;
+                callBack = null;
+                func && func();
+                resolve();
+            }
+
+            redisSub = Redis.createClient(redisConfig);
+            redisPub = Redis.createClient(redisConfig);
+            redisSub.on( "message", messageHandler );
+            redisSub.on("connect", function() {
+                redisSub.subscribe( Redis.join( EocChannel ) );            //侦听针对所有对象的广播消息
+                redisSub.subscribe( Redis.join( `${EocChannel}_${ecoID}` ) );                 //侦听针对自己的广播消息
+                redisSub.subscribe( Redis.join( `${EocChannel}_${ecoSetting.name}` ) );       //侦听针对本组的广播消息
+                redisSub.__ready = true;
+                redisReady();
+            });
+            redisPub.on("connect", function() {
+                redisPub.__ready = true;
+                redisReady();
+            });
         }catch(err){
             reject(err);
         }
@@ -340,7 +374,7 @@ exports.fireTo = function( targetID, type, mID, event, data, callBack ){
                 event: event,
                 type: type
             };
-            Redis.publish( pubTarget , JSON.stringify(pubData) );
+            redisPub.publish( pubTarget , JSON.stringify(pubData) );
             if (callBack)callBack();
             resolve();
         }catch(err){
