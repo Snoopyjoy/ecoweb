@@ -596,7 +596,25 @@ var GROUP_REG = /@[a-zA-Z0-9]+->/;
 
 exports.createClient = function(config, connectCallback) {
     config = config || setting;
-    var ins = REDIS.createClient(config.port, config.host, { auth_pass: config.pass });
+    var ins = REDIS.createClient(config.port, config.host, { auth_pass: config.pass ,
+        retry_strategy:function(options){
+            /*if (options.error && options.error.code === 'ECONNREFUSED') {
+                // End reconnecting on a specific error and flush all commands with
+                // a individual error
+                return new Error('The server refused the connection');
+            }
+            if (options.total_retry_time > 1000 * 60 * 60) {
+                // End reconnecting after a specific timeout and flush all commands
+                // with a individual error
+                return new Error('Retry time exhausted');
+            }
+            if (options.attempt > 10) {
+                // End reconnecting with built in error
+                return undefined;
+            }*/
+            return Math.min(options.attempt * 100, 15000);
+        }
+    });
     if (connectCallback) {
         ins.on("connect", function() {
             ins.removeListener("connect", arguments.callee);
@@ -635,10 +653,10 @@ exports.start = function(option, callBack) {
             client.__timer = null;
         }
         console.error(err);
-        if (client.__startCallBack) {
+        /*if (client.__startCallBack) {
             client.__startCallBack(err);
             client.__startCallBack = null;
-        }
+        }*/
     });
     client.on("connect", function() {
         console.log("Redis Server<" + host + ":" + port + "> is connected.");
