@@ -8,6 +8,7 @@ function GTimer( updateDelay ){
     this.timers = {
         default:{}
     };
+    this.__working = false;
     this.intervalTimer = 0;
     this.pauseTar={
         default:0
@@ -18,6 +19,7 @@ function GTimer( updateDelay ){
 const proto = GTimer.prototype;
 proto.startTimer = function(){
     let ins = this;
+    this.__working = true;
     if( this.intervalTimer ) clearInterval( this.intervalTimer );
     this.intervalTimer = setInterval(function() {
         ins.times += ins.updateDelay;
@@ -27,8 +29,13 @@ proto.startTimer = function(){
 
 proto.stopTimer = function(){
     clearInterval( this.intervalTimer );
+    this.__working = false;
     this.intervalTimer = 0;
 };
+
+proto.isWorking = function(){
+    return this.__working;
+}
 
 proto.execute = function( timer ){
     for( let group in this.timers ){
