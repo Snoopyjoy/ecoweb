@@ -7,9 +7,10 @@ var Session = require("../model/Session");
 exports.createServer = function(config, noGlobal) {
     if (config.cluster && config.cluster.enable) {
         //enable cluster
-        config = cloneObject(config);
-        if (!config.port) throw new Error("must set port number for cluster.");
-        config.port = config.port + parseInt(global.workerID);
+        config = Object.assign({},config);
+        if ( config.port ){
+          config.port = config.port + parseInt(global.workerID);
+        }
     }
     var server = new Websocket(config);
     server.__producers = {};
