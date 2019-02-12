@@ -5,7 +5,6 @@
 const Utils = require("./../utils/Utils");
 const CODES = require("./../ErrorCodes");
 const Redis = require("../model/Redis");
-
 const WebApp = require("../web/WebApp");
 
 let Setting = global.SETTING;

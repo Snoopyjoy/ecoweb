@@ -122,6 +122,12 @@ if (!Array.prototype.shuffle) {
     };
 }
 
+Array.prototype.forEachAsync = async function (fn) {
+  for (let i = 0; i < this.length; i++) {
+        await fn( this[i] , i )
+  }
+};
+
 exports.modules = {
     request: require('request'),
     min_request: require('min-request'),

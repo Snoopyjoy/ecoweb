@@ -117,14 +117,17 @@ function sayError() {
     } else if (typeof msg === 'object') {
         msg = msg.message || msg.toString();
     }
-    console.error(this._req.body.method + " > ", "code: " + code, "msg: " + msg);
+    //console.error(this._req.body.method + " > ", "code: " + code, "msg: " + msg);
     outputData.apply(this, [ {code:code, data:{}, msg:msg} ]);
 }
 
 function sayOK(data, headers) {
     if (arguments.length === 0) data = { flag:1 };
-    data = {code: CODES.OK, data:data, msg:"OK"};
-    outputData.apply(this, [ data, headers ])
+    const resultTemplate = {
+      code: CODES.OK, msg:"OK"
+    };
+    const result = Object.assign( resultTemplate, data );
+    outputData.apply(this, [ result, headers ])
 }
 
 function sendBinary(data, mime, headers) {
