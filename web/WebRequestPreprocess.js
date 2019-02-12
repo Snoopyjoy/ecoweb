@@ -126,7 +126,12 @@ function sayOK(data, headers) {
     const resultTemplate = {
       code: CODES.OK, msg:"OK"
     };
-    const result = Object.assign( resultTemplate, data );
+    let flattenData = {};
+    if( data.flatten ){
+      flattenData = data.flatten;
+      delete data.flatten;
+    }
+    const result = Object.assign( resultTemplate, {data}, flattenData );
     outputData.apply(this, [ result, headers ])
 }
 

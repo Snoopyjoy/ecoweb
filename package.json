@@ -1,6 +1,6 @@
 {
   "name": "ecoweb",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Build Your Web Application Fast and Less Codes.",
   "main": "index.js",
   "scripts": {
