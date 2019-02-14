@@ -127,7 +127,7 @@ function sayOK(data, headers) {
       code: CODES.OK, msg:"OK"
     };
     let flattenData = {};
-    if( data.flatten ){
+    if( data && data.flatten ){
       flattenData = data.flatten;
       delete data.flatten;
     }
