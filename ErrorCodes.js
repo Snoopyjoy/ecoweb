@@ -15,6 +15,7 @@ module.exports = {
     "ECOSYSTEM_ERROR": 105,
     "ILLEGAL_ACTION": 106,
     "SESSION_ERROR": 110,
+    "NOT_ENOUGH_PERMISSION": 111,
 
     //specific
     "DATA_EXISTED": 1000,

@@ -474,3 +474,8 @@ exports.unListen = function( target, event, handler) {
     const index = list.indexOf(handler);
     if (index >= 0) list.splice(index, 1);
 }
+
+exports.getID = function(){
+
+    return ecoID;
+}

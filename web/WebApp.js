@@ -160,7 +160,7 @@ App.post("/api", async function (req, res) {
                         try {
                             await AuthorityChecker.check(user, security.allow);
                         } catch (err) {
-                            return res.sayError(CODES.NO_PERMISSION, "NO_PERMISSION");
+                            return res.sayError(CODES.NOT_ENOUGH_PERMISSION, "Insufficient permissions");
                         }
                     }
                 } else if (security.needLogin) {
@@ -185,7 +185,7 @@ App.post("/api", async function (req, res) {
             }
         }).catch(err => {
             res.sayError(CODES.SERVER_ERROR, err);
-        });        
+        });
     } else {
         try {
             let ret = await doJob(params, {}, req, res);
@@ -338,7 +338,7 @@ App.handleUserSession = function(req, res, auth) {
             user.isLogined = true;
             user.id = user.userid;
             user.auth = auth;
-            
+
             resolve(user);
         });
     });
