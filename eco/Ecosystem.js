@@ -5,8 +5,6 @@
 const Utils = require("./../utils/Utils");
 const CODES = require("./../ErrorCodes");
 const Redis = require("../model/Redis");
-const request = require("min-request");
-
 const WebApp = require("../web/WebApp");
 
 let Setting = global.SETTING;
@@ -19,10 +17,11 @@ const defaultPingTime = 30000;      //30秒上报一次
 const defaultTimeout = 60000;      //1分钟超时
 const defaultReqTimeout = 15000;   //请求15秒超时
 const EcoRedisKey = "EcoClients";
-const OnlineServers = {};
+const OnlineServers = {};           //在线服务标识
 let ecoID;                          //唯一标识
 let pingTimerID;                    //心跳ID
 const EocChannel = "Ecosystem";
+const MessageTypeRegister= 0;        //消息类型新服务器注册
 const MessageTypeNotify  = 1;        //消息类型通知
 const MessageTypeApi     = 2;        //消息类型API
 const MessageTypeApiAnswer     = 3;        //消息类型API成功处理
@@ -41,42 +40,63 @@ async function updateOnlineServers(){
     const timeout = ecoSetting.timeout || defaultTimeout;
     const now = Date.now();
     const startTime = now - timeout;
-    const serverIDs = await Redis.do( "ZRANGEBYSCORE", [ Redis.join( EcoRedisKey ), startTime, "+inf" ] );
+    const ecoKey =  Redis.join( `@common->${EcoRedisKey}` );
+    await Redis.do( "ZREMRANGEBYSCORE", [ ecoKey, 0, startTime ] ); //移除超时节点
+    const serverIDs = await Redis.do( "ZRANGEBYSCORE", [ ecoKey, startTime, "+inf" ] );
     clearServers();
     serverIDs.forEach( serverID => {
-        const tagIndex = serverID.indexOf("_");
-        const group = serverID.substring(0,tagIndex);
-        if( OnlineServers[group] ){
-            OnlineServers[group].push( serverID );
-        }else{
-            OnlineServers[group] = [ serverID ];
-        }
-        if( !exports[group] ){
-            const client = new Client(group);
-            exports.__register( group, client );
-        }
+        addServer( serverID );
     } );
 }
 
 function clearServers(){
-    for (const group in OnlineServers) {
-        OnlineServers[group] = null;
+    for (let onlineServersKey in OnlineServers) {
+        OnlineServers[onlineServersKey] = null;
+    }
+}
+
+function addServer( serverID ){
+    const tagIndex = serverID.indexOf("_");
+    const versionTagIndex = serverID.lastIndexOf("_");
+    const group = serverID.substring(0,tagIndex);
+    const version = serverID.substring(versionTagIndex + 1);
+    const oldServers = OnlineServers[group];
+    if( isEmpty(oldServers) ){
+        OnlineServers[group] = {
+            version: version,
+            servers: [ serverID ]
+        }
+    }else{
+        const lastVersion = oldServers.version;
+        if( Utils.compareVersion( version , lastVersion ) > 0 ){
+            OnlineServers[group] = {
+                version: version,
+                servers: [ serverID ]
+            }
+        }else if( oldServers.servers.indexOf( serverID ) < 0){
+            oldServers.servers.push( serverID );
+        }
+    }
+    if( !exports[group] ){
+        const client = new Client(group);
+        exports.__register( group, client );
     }
 }
 
 async function ping(){
-    if( ecoID ){        //
-        DEBUG && console.log( `eco ${ecoID} ping--->` );
+    if( ecoID ){
         await updateOnlineServers();
-        await Redis.do( "ZADD", [ Redis.join( EcoRedisKey ), Date.now(), ecoID ] );
+        await Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] );
     }
 }
 
 async function genUUID( group ){
     const uuid = uuidv4();
-    const tempID = `${group}_${uuid}`;
+    let ecoSetting = exports.getSetting();
+    const version = ecoSetting.version || "";
+    const tempID = `${group}_${uuid}_${version}`;
     let groupClients = OnlineServers[ group ];
-    if( groupClients && groupClients.indexOf( tempID ) > -1 ){
+    if( groupClients && groupClients.servers.indexOf( tempID ) > -1 ){
         groupClients = null;
         return await genUUID(group);
     }else{
@@ -98,53 +118,60 @@ function messageHandler( channel, message ){
     const group = sender.group;
     const senderID = sender.ecoID;
     const senderMsgID = sender.msgID;
-    if( type === MessageTypeNotify ){           //处理通知
-        let handlerList = server_notifyHandlers[group + "@" + event] || [];
-        let handlerList1 = server_notifyHandlers[event] || [];
-        const list = handlerList.concat( handlerList1 );
-        if (list && list.length > 0) {
-            list.forEach(function(handler) {
-                if (handler) handler(data, group);
+    switch ( type ) {
+        case MessageTypeRegister:               //新节点加入
+            addServer( senderID );
+            break;
+        case MessageTypeNotify:                 //处理通知
+            let handlerList = server_notifyHandlers[group + "@" + event] || [];
+            let handlerList1 = server_notifyHandlers[event] || [];
+            const list = handlerList.concat( handlerList1 );
+            if (list && list.length > 0) {
+                list.forEach(function(handler) {
+                    if (handler) handler(data, group);
+                });
+            }
+            break;
+        case MessageTypeApi:                    //处理回调
+            WebApp.$callAPI( event, data, function(err, result){
+                let _data;
+                if( err ){
+                    _data = {
+                        code: err.code,
+                        msg: err.msg
+                    }
+                }else{
+                    _data = {
+                        code: CODES.OK,
+                        data: result,
+                        msg: "OK"
+                    }
+                }
+                exports.fireTo( senderID , MessageTypeApiAnswer, senderMsgID, event, _data );
             });
-        }
-    }else if( type === MessageTypeApi ){        //处理回调
-        WebApp.$callAPI( event, data, function(err, result){
-            let _data;
-            if( err ){
-               _data = {
-                   code: err.code,
-                   msg: err.msg
-               }
-            }else{
-                _data = {
-                    code: CODES.OK,
-                    data: result,
-                    msg: "OK"
+            break;
+        case MessageTypeApiAnswer:              //api请求成功
+            const _msgID = sender.msgID;
+            const task = reqMap[_msgID];
+            for (let i = 0; i < reqs.length; i++) {
+                if (reqs[i][0] === _msgID) {
+                    reqs.splice(i, 1);
+                    break;
                 }
             }
-            exports.fireTo( senderID , MessageTypeApiAnswer, senderMsgID, event, _data );
-        });
-    }else if( type === MessageTypeApiAnswer ){      //api请求成功
-        const _msgID = sender.msgID;
-        const task = reqMap[_msgID];
-        for (let i = 0; i < reqs.length; i++) {
-            if (reqs[i][0] === _msgID) {
-                reqs.splice(i, 1);
-                break;
+            const callback = task[4];
+            const timeroutID = task[5];
+            delete reqMap[_msgID];
+            timer.removeTimer( timeroutID );
+            const code = data.code;
+            const result = data.data;
+            if ( code === 1 ) {
+                callback && callback( null, result);
+            } else {
+                callback && callback( Error.create( code, data.msg ) );
             }
-        }
-        const callback = task[4];
-        const timeroutID = task[5];
-        delete reqMap[_msgID];
-        timer.removeTimer( timeroutID );
-        const code = data.code;
-        const result = data.data;
-        if ( code === 1 ) {
-            callback && callback( null, result);
-        } else {
-            callback && callback( Error.create( code, data.msg ) );
-        }
-        __sendReq();
+            __sendReq();
+            break;
     }
 }
 
@@ -169,11 +196,11 @@ exports.__register = function(target, client) {
     }
 }
 
-exports.callAPI = function() {
+exports.callAPI = async function() {
     if (typeof arguments[0] == "string" && typeof arguments[1] == "string") {
-        return exports.__callAPI.apply(this, [ arguments[0], arguments[1], arguments[2], arguments[3] ]);
+        return await exports.__callAPI.apply(this, [ arguments[0], arguments[1], arguments[2], arguments[3] ]);
     } else {
-        return exports.__callAPI.apply(this, [ "core", arguments[0], arguments[1], arguments[2] ]);
+        return await exports.__callAPI.apply(this, [ "core", arguments[0], arguments[1], arguments[2] ]);
     }
 }
 
@@ -187,7 +214,7 @@ exports.__callAPI = function( target, method, params, callBack) {
             if(err){
                 reject(err);
             }else{
-                resolve();
+                resolve(result);
             }
             reject = null;
             resolve = null;
@@ -273,7 +300,7 @@ exports.init = function( customSetting, callBack) {
             exports.__register( ecoSetting.name, client );
             await updateOnlineServers();
             ecoID = await genUUID( ecoSetting.name );
-            await Redis.do( "ZADD", [ Redis.join( EcoRedisKey ), Date.now(), ecoID ] );
+            await Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] );
             const pingTime = ecoSetting.pingTime || defaultPingTime;
             pingTimerID = setInterval( ping, pingTime );
             timer = new GTimer( 1000 );        //1秒一次循环
@@ -283,18 +310,25 @@ exports.init = function( customSetting, callBack) {
                 const func = callBack;
                 callBack = null;
                 func && func();
+                exports.fireTo( null, MessageTypeRegister, -1, "", {} );
                 resolve();
             }
 
             redisSub = Redis.createClient(redisConfig);
             redisPub = Redis.createClient(redisConfig);
             redisSub.on( "message", messageHandler );
+            let subCount = 0;
+            redisSub.on( "subscribe", function(channel, count){
+                subCount++;
+                if( subCount === 3 ){
+                    redisSub.__ready = true;
+                    redisReady();
+                }
+            } );
             redisSub.on("connect", function() {
                 redisSub.subscribe( Redis.join( EocChannel ) );            //侦听针对所有对象的广播消息
                 redisSub.subscribe( Redis.join( `${EocChannel}_${ecoID}` ) );                 //侦听针对自己的广播消息
                 redisSub.subscribe( Redis.join( `${EocChannel}_${ecoSetting.name}` ) );       //侦听针对本组的广播消息
-                redisSub.__ready = true;
-                redisReady();
             });
             redisPub.on("connect", function() {
                 redisPub.__ready = true;
@@ -322,7 +356,8 @@ exports.broadcast = function(event, data, callBack) {
 exports.fireAPI = function( target, event, data, callBack ){
     return new Promise( async (resolve, reject)=>{
         try{
-            const servers = OnlineServers[target];
+            const groupServers = OnlineServers[target] || { servers: [] };
+            const servers = groupServers.servers;
             if( servers.length > 0 ){
                 const targetID = servers[ (Math.random() * servers.length)>>0 ];
                 await exports.fireTo( targetID, MessageTypeApi, msgID, event, data );
@@ -340,7 +375,8 @@ exports.fireAPI = function( target, event, data, callBack ){
 exports.fire = function(target, event, data, callBack) {
     return new Promise( async (resolve, reject)=>{
         try{
-            const servers = OnlineServers[target];
+            const groupServers = OnlineServers[target] || { servers: [] };
+            const servers = groupServers.servers;
             if( servers.length > 0 ){
                 const targetID = servers[ (Math.random() * servers.length)>>0 ];
                 await exports.fireTo( targetID, MessageTypeNotify, -1, event, data );
@@ -387,7 +423,8 @@ exports.fireTo = function( targetID, type, mID, event, data, callBack ){
 exports.fireToGroup = function( target, event, data, callBack) {
     return new Promise( async (resolve, reject)=>{
         try{
-            const servers = OnlineServers[target];
+            const groupServers = OnlineServers[target] || { servers: [] };
+            const servers = groupServers.servers;
             if( servers.length > 0 ){
                 await exports.fireTo( target, MessageTypeNotify, -1, event, data );
                 if (callBack)callBack();
@@ -436,4 +473,9 @@ exports.unListen = function( target, event, handler) {
 
     const index = list.indexOf(handler);
     if (index >= 0) list.splice(index, 1);
+}
+
+exports.getID = function(){
+
+    return ecoID;
 }

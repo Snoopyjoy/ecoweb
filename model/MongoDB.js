@@ -24,10 +24,9 @@ var dbMap = {};
 var defaultDB;
 
 function open(host, port, name, option, callBack, asDefault) {
-    var auth = option ? option.auth : null;
-
     var driver = option && option.driver ? option.driver : "native";
     var poolSize = option && option.server && option.server.poolSize ? option.server.poolSize : 'default';
+    poolSize = option.poolSize ? option.poolSize : 'default';
 
     var newDB;
     var done = function(err) {
@@ -41,6 +40,7 @@ function open(host, port, name, option, callBack, asDefault) {
     }
 
     var uri, opt = cloneObject(option);
+    delete opt.driver;
     if (host.indexOf("mongodb://") == 0) {
         uri = host;
     } else {
@@ -61,7 +61,17 @@ function open(host, port, name, option, callBack, asDefault) {
         mongoose.Promise = global.Promise;
         newDB = mongoose.createConnection(uri, opt);
         newDB.__driver = mongoose;
-        process.nextTick(done);
+        newDB.__started = false;
+        newDB.on('connected', function (ref) {
+            if( !newDB.__started ){
+              done();
+            }
+        });
+        newDB.on('err', function (err) {
+            if( !newDB.__started ){
+              done(err);
+            }
+        });
     } else {
         var MongoClient = require("mongodb").MongoClient;
         MongoClient.connect(uri, opt, function (err, db) {
@@ -432,7 +442,7 @@ function getIndexes(dbName, target, callBack) {
         }
 
         var targetCol = db.collection(target);
-        
+
         targetCol.indexInformation(function(err, result) {
             if (callBack) return callBack(err, result);
             err ? reject(err) : resolve(result);

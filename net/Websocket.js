@@ -50,7 +50,8 @@ Websocket.prototype.start = function() {
         hosted = config.server;
     }
     this.port = port;
-    this.io = io = SocketIO(hosted);
+    const ioOptions = config.ioOptions;
+    this.io = io = SocketIO(hosted, ioOptions );
     io.on('connection', function(socket){
         var conn = socket.request.connection;
 

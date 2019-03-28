@@ -160,7 +160,7 @@ App.post("/api", async function (req, res) {
                         try {
                             await AuthorityChecker.check(user, security.allow);
                         } catch (err) {
-                            return res.sayError(CODES.NO_PERMISSION, "NO_PERMISSION");
+                            return res.sayError(CODES.NOT_ENOUGH_PERMISSION, "Insufficient permissions");
                         }
                     }
                 } else if (security.needLogin) {
@@ -185,7 +185,7 @@ App.post("/api", async function (req, res) {
             }
         }).catch(err => {
             res.sayError(CODES.SERVER_ERROR, err);
-        });        
+        });
     } else {
         try {
             let ret = await doJob(params, {}, req, res);
@@ -229,20 +229,21 @@ function registerRouter(router) {
             res.profile();
         }.bind(res);
 
-        try{
             if( r.rateLimit ){
                 let limitType = r.rateLimit.type;
                 if( !r.needLogin ) limitType = "ip";
-                if(r.rateLimit && limitType === "ip"){       //ip限流检测
-                    const throttleDuration = r.rateLimit.duration || 1000;
-                    const throttleTimes = r.rateLimit.times || 1;
-                    await Redis.rateLimit( `api_${r.$target}_${req._clientIP}`, throttleDuration, throttleTimes );
+                const throttleDuration = r.rateLimit.duration || 1000;
+                const throttleTimes = r.rateLimit.times || 1;
+                try{
+                    if(r.rateLimit && limitType === "ip"){       //ip限流检测
+                        await Redis.rateLimit( `api_${req.$target}_${req._clientIP}`, throttleDuration, throttleTimes );
+                    }
+                }catch (err) {
+                    res.setHeader("Retry-After", Math.ceil(throttleDuration/1000) );
+                    res.status(429);
+                    return res.end();
                 }
             }
-        }catch (err) {
-            res.status(503);
-            return res.end();
-        }
 
         if (r.mobile) {
             req.__isMobile = Utils.isFromMobile(req);
@@ -273,12 +274,12 @@ function registerRouter(router) {
                 }
             }
 
-            if( r.rateLimit && r.needLogin && limitType != "ip"){       //userid限流检测
-                const throttleTypeVal = r.rateLimit.type === "ip" || !user.isLogined ? req._clientIP : user.id;
+            if( r.rateLimit && r.needLogin && r.rateLimit.type !== "ip"){       //userid限流检测
+                const throttleTypeVal = user.id;
                 const throttleDuration = r.rateLimit.duration || 1000;
                 const throttleTimes = r.rateLimit.times || 1;
                 try {
-                    await Redis.rateLimit( `api_${r.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
+                    await Redis.rateLimit( `api_${req.$target}_${throttleTypeVal}`, throttleDuration, throttleTimes );
                 } catch (err) {
                     res.setHeader("Retry-After", Math.ceil(throttleDuration/1000) );
                     res.status(429);
@@ -337,7 +338,7 @@ App.handleUserSession = function(req, res, auth) {
             user.isLogined = true;
             user.id = user.userid;
             user.auth = auth;
-            
+
             resolve(user);
         });
     });

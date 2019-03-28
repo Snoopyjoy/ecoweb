@@ -122,6 +122,12 @@ if (!Array.prototype.shuffle) {
     };
 }
 
+Array.prototype.forEachAsync = async function (fn) {
+  for (let i = 0; i < this.length; i++) {
+        await fn( this[i] , i )
+  }
+};
+
 exports.modules = {
     request: require('request'),
     min_request: require('min-request'),
@@ -953,4 +959,26 @@ exports.calDistanceInMeters = function(p1, p2) {
     let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     let d = R * c; // Distance in km
     return Math.floor(d * 1000);
+}
+
+/**
+ * @description 比较两个版本号大小 例 1.0.1 > 1.0.0
+ * @param v1
+ * @param v2
+ * @returns {number}
+ */
+exports.compareVersion = function (v1, v2) {
+    const v1Arr = v1.split(".");
+    const v2Arr = v2.split(".");
+    for (let i = 0; i < v1Arr.length; i++) {
+        const tag1 = v1Arr[i];
+        const tag2 = v2Arr[i] || 0;
+        if( i === (v1Arr.length - 1) && tag1 === tag2 && tag2.length > tag1 ){
+            return -1;
+        }
+        if( tag1 != tag2 ){
+            return Number( tag1 ) - Number( tag2 )
+        }
+    }
+    return 0;
 }

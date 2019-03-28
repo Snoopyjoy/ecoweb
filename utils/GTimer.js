@@ -16,8 +16,7 @@ function GTimer( updateDelay ){
     this.updateDelay = updateDelay || 1000;
 }
 
-const proto = GTimer.prototype;
-proto.startTimer = function(){
+GTimer.prototype.startTimer = function(){
     let ins = this;
     this.__working = true;
     if( this.intervalTimer ) clearInterval( this.intervalTimer );
@@ -27,17 +26,17 @@ proto.startTimer = function(){
     }, this.updateDelay);
 };
 
-proto.stopTimer = function(){
+GTimer.prototype.stopTimer = function(){
     clearInterval( this.intervalTimer );
     this.__working = false;
     this.intervalTimer = 0;
 };
 
-proto.isWorking = function(){
+GTimer.prototype.isWorking = function(){
     return this.__working;
 }
 
-proto.execute = function( timer ){
+GTimer.prototype.execute = function( timer ){
     for( let group in this.timers ){
         if( this.pauseTar[group] == 1 ){
             continue;
@@ -61,20 +60,20 @@ proto.execute = function( timer ){
     }
 };
 
-proto.pause = function( group ){
+GTimer.prototype.pause = function( group ){
     if( group ){
         this.pauseTar[group] = 1;
     }
 };
 
-proto.continue = function( group ){
+GTimer.prototype.continue = function( group ){
     this.pauseTar[group] = 0;   
 };
 
 /*增加倒计时 单位（秒）最小延时1秒
 
 */
-proto.addTimer = function( callback, delay , group , agrs ){
+GTimer.prototype.addTimer = function( callback, delay , group , agrs ){
     group = group || "default";
     if( !this.timers[group] ){
         this.timers[group] = {};
@@ -91,7 +90,7 @@ proto.addTimer = function( callback, delay , group , agrs ){
 };
 
 /*移除定时*/
-proto.removeTimer = function( timerID ){
+GTimer.prototype.removeTimer = function( timerID ){
     if( String( timerID ).hasValue() ){
         let group = timerID.split("#")[0];
         if (this.timers[group]) {
@@ -100,7 +99,7 @@ proto.removeTimer = function( timerID ){
     }
 };
 
-proto.getTimerByID = function( timerID ){
+GTimer.prototype.getTimerByID = function( timerID ){
     if( !String(timerID).hasValue() ){
         return null;
     }
@@ -109,7 +108,7 @@ proto.getTimerByID = function( timerID ){
     return this.timers[group][timerID];
 };
 
-proto.changeTimerDelay = function( timerID, delta ){
+GTimer.prototype.changeTimerDelay = function( timerID, delta ){
     let timerDef = this.getTimerByID( timerID );
     if(timerDef){
         timerDef.delay = timerDef.delay + delta;
@@ -117,7 +116,7 @@ proto.changeTimerDelay = function( timerID, delta ){
     timerDef = null;
 };
 
-proto.getTimerID = function(group){
+GTimer.prototype.getTimerID = function(group){
     let id = group + "#" + this.times;
     let tag = 0;
     if (!this.timers[group]) return 0;
@@ -129,7 +128,7 @@ proto.getTimerID = function(group){
     return id;
 };
 
-proto.destroy = function(){
+GTimer.prototype.destroy = function(){
     clearInterval( this.intervalTimer );
     this.times = 0;
     this.timers = null;

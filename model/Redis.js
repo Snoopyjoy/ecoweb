@@ -60,37 +60,43 @@ exports.registerExpiredTime = function(key, expired) {
     EXPIRED_MAP[key] = Number(expired);
 }
 
-exports.save = function(key, val) {
-    var callBack = typeof arguments[2] == "function" ? arguments[2] : arguments[3];
-    if (typeof callBack != "function") callBack = null;
+exports.getCacheKey = function( key ){
+  var tempKey = key;
+  var redisKey = key;
+  if (key instanceof Array) tempKey = key.join(SEP);
+  if (tempKey.substr(0, 1) == "@") {
+    redisKey = exports.join(tempKey, CACHE_PREFIX);
+  } else {
+    redisKey = exports.join(CACHE_PREFIX + tempKey);
+  }
+  return redisKey;
+}
 
-    var expired = typeof arguments[2] == "number" ? arguments[2] : arguments[3];
-    if (typeof expired != "number") expired = null;
+exports.save = function(key, val) {
+    var callBack = typeof arguments[2] === "function" ? arguments[2] : arguments[3];
+    if (typeof callBack !== "function") callBack = null;
+
+    var expired = typeof arguments[2] === "number" ? arguments[2] : arguments[3];
+    if (typeof expired !== "number") expired = null;
 
     return new Promise(function (resolve, reject) {
-        var tempKey = key;
         var firstKey = key;
         var originalKey = key;
-        var redisKey = key;
+        var tempKey = key;
         if (key instanceof Array) {
             tempKey = key.join(SEP);
             firstKey = key[0];
         }
-        if (tempKey.substr(0, 1) == "@") {
-            redisKey = exports.join(tempKey, CACHE_PREFIX);
-        } else {
-            redisKey = exports.join(CACHE_PREFIX + tempKey);
-        }
-        //console.log('save ---> ' + tempKey);
-
         if (!expired) expired = EXPIRED_MAP[firstKey];
         var originalVal = val;
-        if (typeof val == "object") {
+        if (typeof val === "object") {
             val = JSON.stringify(val);
         }
 
+        const redisKey = exports.getCacheKey(key);
+
         client.set(redisKey, val, function (redisErr, redisRes) {
-            if (!expired || expired == - 1) {
+            if (!expired || expired === - 1) {
                 //no expired
             } else {
                 client.expire(redisKey, expired);
@@ -114,14 +120,7 @@ exports.save = function(key, val) {
 
 exports.read = function(key, callBack) {
     return new Promise(function (resolve, reject) {
-        var tempKey = key;
-        var redisKey = key;
-        if (key instanceof Array) tempKey = key.join(SEP);
-        if (tempKey.substr(0, 1) == "@") {
-            redisKey = exports.join(tempKey, CACHE_PREFIX);
-        } else {
-            redisKey = exports.join(CACHE_PREFIX + tempKey);
-        }
+        const redisKey = exports.getCacheKey(key);
         //console.log('read ---> ' + tempKey);
         client.get(redisKey, function(err, res) {
             if (res && typeof res == "string") {
@@ -141,15 +140,7 @@ exports.read = function(key, callBack) {
 
 exports.remove = function(key, callBack) {
     return new Promise(function (resolve, reject) {
-        var tempKey = key;
-        var redisKey = key;
-        if (key instanceof Array) tempKey = key.join(SEP);
-        if (tempKey.substr(0, 1) == "@") {
-            redisKey = exports.join(tempKey, CACHE_PREFIX);
-        } else {
-            redisKey = exports.join(CACHE_PREFIX + tempKey);
-        }
-        //console.log('remove ---> ' + tempKey);
+        const redisKey = exports.getCacheKey(key);
         client.del(redisKey, function(err) {
             if (callBack) return callBack(err);
             if (err) {
@@ -407,12 +398,12 @@ exports.del = function(key, callBack) {
 
 exports.multi = function(tasks, callBack) {
     return new Promise(function (resolve, reject) {
-        client.multi(tasks).exec(function (err) {
+        client.multi(tasks).exec(function (err, result) {
             if (callBack) return callBack(err);
             if (err) {
                 reject(err);
             } else {
-                resolve();
+                resolve( result );
             }
         });
     });
