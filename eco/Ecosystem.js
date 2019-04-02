@@ -300,6 +300,7 @@ exports.init = function( customSetting, callBack) {
             exports.__register( ecoSetting.name, client );
             await updateOnlineServers();
             ecoID = await genUUID( ecoSetting.name );
+            console.log( "server ecoID: ", ecoID );
             await Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] );
             const pingTime = ecoSetting.pingTime || defaultPingTime;
             pingTimerID = setInterval( ping, pingTime );

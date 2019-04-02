@@ -38,7 +38,7 @@ GTimer.prototype.isWorking = function(){
 
 GTimer.prototype.execute = function( timer ){
     for( let group in this.timers ){
-        if( this.pauseTar[group] == 1 ){
+        if( this.pauseTar[group] === 1 ){
             continue;
         }
         let groupTimers = this.timers[group];
@@ -47,7 +47,7 @@ GTimer.prototype.execute = function( timer ){
             let callback = timerDef.callback;
             let passed = timerDef.passed;
             let delay = timerDef.delay;
-            if(  passed >= delay ){
+            if( passed >= delay ){
                 callback && callback.apply(null, timerDef.args  );
                 groupTimers[timerID] = null;
                 delete groupTimers[timerID];
@@ -67,7 +67,7 @@ GTimer.prototype.pause = function( group ){
 };
 
 GTimer.prototype.continue = function( group ){
-    this.pauseTar[group] = 0;   
+    this.pauseTar[group] = 0;
 };
 
 /*增加倒计时 单位（秒）最小延时1秒

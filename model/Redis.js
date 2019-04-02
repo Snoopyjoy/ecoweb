@@ -3,16 +3,9 @@
  */
 
 var REDIS = require("redis");
-var UTIL = require('util');
 
 var EventEmitter = require("events").EventEmitter;
-const GTimer = require("../utils/GTimer");
-/*
-function RedisClient() {
-    EventEmitter.call(this);
-    this.client = null;
-}
-*/
+
 var Dispatcher = new EventEmitter();
 var client;
 var setting;
@@ -495,52 +488,28 @@ exports.rateLimit = function( redisKey, duration, times , callback ){
     });
 }
 
-exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetry, p) {
+exports.checkLock = function(lockKey, callBack, timeout = 10 ) {
     return new Promise( async function (resolve, reject) {
-        var pins = this;
-        if (p) {
-            resolve();
-            resolve = p.resolve;
-            reject = p.reject;
-        }
-        timeout = timeout || 10;        //10秒超时
-        currentRetry = currentRetry || 0;
-        checkDelay = checkDelay || 20;
-        const maxRetry = Math.ceil((timeout * 1000) / checkDelay);
-        const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
         const now = Date.now();
+        lockKey = exports.join(lockKey);
         try {
-            const lockFlag = await exports.do("HSETNX", [ LOCK_GROUP_KEY, lockKey, now ] );//, async function(err, res) {
+            const lockFlag = await exports.do("SETNX", [ lockKey, now ] );
             const isLocked = lockFlag === 0;
             if( isLocked ){
-                if( setting && setting.maxLockTime ){
-                    const lockTime = await exports.do( "HGET", [ LOCK_GROUP_KEY, lockKey ] );
-                    if( ( now - Number(lockTime) ) > setting.maxLockTime ){     //延时超过锁最大时间
-                        await exports.do( "HDEL", [ LOCK_GROUP_KEY, lockKey ] );
-                        if (callBack) return callBack();
-                        return resolve();
-                    }
-                }
                 DEBUG && console.log(`found lock, wait ---> lock key: ${lockKey}`);
-
-                if (currentRetry >= maxRetry) {
-                    const err = new Error("access locked");
-                    if (callBack) return callBack(err);
-                    return reject(err);
-                }
-                currentRetry ++;
-                client.__timer.addTimer( function() {
-                    DEBUG && console.log("check lock retry ---> " + currentRetry);
-                    exports.checkLock(lockKey, callBack, checkDelay, timeout, currentRetry, { resolve: resolve.bind(pins), reject: reject.bind(pins) });
-                    lockKey = null; callBack= null; checkDelay= null; timeout= null; currentRetry = null;
-                    resolve = null; reject = null;
-                }, checkDelay == undefined ? 20 : Number(checkDelay) , "Redis" );
+                reject( new Error("locked") );
             }else{
+                await exports.do("EXPIRE", [ lockKey , timeout ] );
                 if (callBack) return callBack();
                 return resolve();
             }
         }catch (err) {
             console.error(`check lock *${lockKey}* error ---> ${err}`);
+            try {
+              await exports.do( "DEL", [ lockKey ] );
+            }catch (e) {
+              console.error(`del lock *${lockKey}* error ---> ${e}`);
+            }
             if (callBack) return callBack(err);
             return reject(err);
         }
@@ -548,10 +517,9 @@ exports.checkLock = function(lockKey, callBack, checkDelay, timeout, currentRetr
 }
 
 exports.releaseLock = function(lockKey, callBack) {
-    const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
     return new Promise(async function (resolve, reject) {
         try{
-            await exports.do( "HDEL", [ LOCK_GROUP_KEY, lockKey ] );
+            await exports.del(lockKey);
             if (callBack) return callBack();
             resolve();
         }catch (err) {
@@ -562,20 +530,6 @@ exports.releaseLock = function(lockKey, callBack) {
             } else {
                 resolve();
             }
-        }
-    });
-}
-
-exports.releaseAllLocks = function(callBack) {
-    const LOCK_GROUP_KEY = exports.join( LOCK_KEY_PREFIX );
-    return new Promise(async function (resolve, reject) {
-        try {
-            await exports.do( "DEL", [ LOCK_GROUP_KEY ] );
-            callBack && callBack();
-            resolve();
-        }catch (e) {
-            callBack && callBack(e);
-            reject(e);
         }
     });
 }
@@ -639,34 +593,14 @@ exports.start = function(option, callBack) {
 
     client.on("error", function(err) {
         client.__working = false;
-        if( client.__timer ){
-            client.__timer.destroy();
-            client.__timer = null;
-        }
         console.error(err);
-        /*if (client.__startCallBack) {
-            client.__startCallBack(err);
-            client.__startCallBack = null;
-        }*/
     });
     client.on("connect", function() {
         console.log("Redis Server<" + host + ":" + port + "> is connected.");
         client.__working = true;
-        const redisTimer = new GTimer( 20 );        //20毫秒一次循环
-        redisTimer.startTimer();
-        client.__timer = redisTimer;
-        if (setting && setting.releaseLockWhenStart) {
-            exports.releaseAllLocks(function() {
-                if (client.__startCallBack) {
-                    client.__startCallBack();
-                    client.__startCallBack = null;
-                }
-            });
-        } else {
-            if (client.__startCallBack) {
-                client.__startCallBack();
-                client.__startCallBack = null;
-            }
+        if (client.__startCallBack) {
+            client.__startCallBack();
+            client.__startCallBack = null;
         }
     });
 }
