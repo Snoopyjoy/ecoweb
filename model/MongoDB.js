@@ -56,32 +56,24 @@ function open(host, port, name, option, callBack, asDefault) {
         uri += tmp;
     }
 
-    if (option && option.driver == "mongoose") {
-        var mongoose = require("mongoose");
-        mongoose.Promise = global.Promise;
-        newDB = mongoose.createConnection(uri, opt);
-        newDB.__driver = mongoose;
-        newDB.__started = false;
-        newDB.on('connected', function (ref) {
-            if( !newDB.__started ){
-              done();
-            }
-        });
-        newDB.on('err', function (err) {
-            if( !newDB.__started ){
-              done(err);
-            }
-        });
-    } else {
-        var MongoClient = require("mongodb").MongoClient;
-        MongoClient.connect(uri, opt, function (err, db) {
-            if (db) {
-                newDB = db;
-                newDB.__driver = require("mongodb");
-            }
-            done(err);
-        });
-    }
+  if (option && option.driver === "mongoose") {
+    const mongoose = require("mongoose");
+    mongoose.Promise = global.Promise;
+    mongoose.createConnection(uri, opt, function(err,db){
+      if (db) {
+        newDB = db;
+      }
+      done(err);
+    });
+  } else {
+    const MongoClient = require("mongodb").MongoClient;
+    MongoClient.connect(uri, opt, function (err, db) {
+      if (db) {
+        newDB = db;
+      }
+      done(err);
+    });
+  }
 }
 
 function getDBByName(dbName) {
