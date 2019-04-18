@@ -3,6 +3,7 @@
  */
 const JWT = require('jsonwebtoken');
 const CODES = require("../ErrorCodes");
+const Redis = require("../model/Redis");
 
 function Session() {
     if (!Session.$instance) Session.$instance = this;
@@ -37,11 +38,17 @@ Session.prototype.check = function (auth, callBack) {
             if (!this.config.secret) {
                 throw Error.create(CODES.SESSION_ERROR, 'session is not configed correctly');
             }
+            let options;
+            if( this.config.algorithms ){
+              options = { algorithms : this.config.algorithms };
+            }
 
-            let payload = JWT.verify(auth, this.config.secret);
+            let payload = JWT.verify(auth, this.config.secret, options );
             if (!payload || !String(payload.id).hasValue() ) {
                 throw Error.create(CODES.SESSION_ERROR, 'auth expired or invalid');
             }
+            const entry = payload.iss || "default";
+            await this.checkBlock(payload.id, entry, payload.iat);
             if (callBack) return callBack(null, payload);
             resolve(payload);
         } catch (err) {
@@ -49,6 +56,32 @@ Session.prototype.check = function (auth, callBack) {
             reject(err);
         }
     });
+}
+
+
+Session.prototype.block = function( userId, entry='default', beforeTime, maxAge ) {
+    return new Promise( async (resolve, reject)=>{
+        try{
+            await Redis.set( `${userId}_${entry}`, beforeTime, maxAge );
+            resolve({});
+        }catch(err){
+            reject(err);
+        }
+    } );
+}
+
+Session.prototype.checkBlock = function( userId, entry, time ){
+    return new Promise( async (resolve, reject)=>{
+        try{
+            const notBefore = await Redis.get( `${userId}_${entry}` );
+            if( Number(notBefore) > time ){
+              throw Error.create(CODES.SESSION_ERROR, 'auth blocked');
+            }
+            resolve({});
+        }catch(err){
+            reject(err);
+        }
+    } );
 }
 
 Session.getSharedInstance = function () {
