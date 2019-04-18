@@ -58,11 +58,19 @@ Session.prototype.check = function (auth, callBack) {
     });
 }
 
-
-Session.prototype.block = function( userId, entry='default', beforeTime, maxAge ) {
+/**
+ * @description block old user jwt
+ * @param userId
+ * @param maxAge
+ * @param beforeTime
+ * @param entry
+ * @param actTime
+ * @returns {Promise<any>}
+ */
+Session.prototype.block = function( userId, maxAge, beforeTime, entry='default', actTime='') {
     return new Promise( async (resolve, reject)=>{
         try{
-            await Redis.set( `${userId}_${entry}`, beforeTime, maxAge );
+            await Redis.set( `${userId}_${entry}`, `${beforeTime}_${actTime}`, maxAge );
             resolve({});
         }catch(err){
             reject(err);
@@ -70,12 +78,26 @@ Session.prototype.block = function( userId, entry='default', beforeTime, maxAge 
     } );
 }
 
+/**
+ * @description check auth is blocked by ist
+ * @param userId
+ * @param entry
+ * @param time
+ * @returns {Promise<any>}
+ */
 Session.prototype.checkBlock = function( userId, entry, time ){
     return new Promise( async (resolve, reject)=>{
         try{
-            const notBefore = await Redis.get( `${userId}_${entry}` );
-            if( Number(notBefore) > time ){
-              throw Error.create(CODES.SESSION_ERROR, 'auth blocked');
+            const notBeforeDesc = await Redis.get( `${userId}_${entry}` );
+            if( notBeforeDesc ){
+              const beforeArr = notBeforeDesc.split('_');
+              const notBefore = Number(beforeArr[0]);
+              const actTime = Number(beforeArr[1]);
+              const nowTimeStamp = (Date.now()/1000)>>0;
+              if( actTime > nowTimeStamp) return resolve({});   //黑名单还没到激活时间
+              if( Number(notBefore) > time ){
+                throw Error.create(CODES.SESSION_ERROR, 'auth blocked');
+              }
             }
             resolve({});
         }catch(err){
