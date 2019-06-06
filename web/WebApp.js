@@ -326,21 +326,20 @@ function registerRouter(router) {
 }
 
 App.handleUserSession = function(req, res, auth) {
-    return new Promise((resolve) => {
+    return new Promise( async (resolve) => {
         let user = { isLogined:false };
 
         if (!String(auth).hasValue()) return resolve(user);
-
-        Session.getSharedInstance().check(auth, (err, sess) => {
-            if (err) return resolve(user);
-
+        try{
+            const sess = await Session.getSharedInstance().check( auth );
             user = sess;
             user.isLogined = true;
             user.id = user.userid;
             user.auth = auth;
-
             resolve(user);
-        });
+        }catch( err ){
+            return resolve(user);
+        }
     });
 }
 

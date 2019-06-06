@@ -32,7 +32,7 @@ Session.prototype.save = function (user, extra ) {
     return JWT.sign(sess, this.config.secret, { expiresIn: expireTime });
 }
 
-Session.prototype.check = function (auth, callBack) {
+Session.prototype.check = function (auth) {
     return new Promise(async (resolve, reject) => {
         try {
             if (!this.config.secret) {
@@ -49,10 +49,8 @@ Session.prototype.check = function (auth, callBack) {
             }
             const entry = payload.iss || "default";
             await this.checkBlock(payload.id, entry, payload.iat);
-            if (callBack) return callBack(null, payload);
             resolve(payload);
         } catch (err) {
-            if (callBack) return callBack(err);
             reject(err);
         }
     });
