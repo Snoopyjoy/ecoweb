@@ -2,14 +2,16 @@
  * Created by Jay on 2015/8/24.
  */
 
-var REDIS = require("redis");
+const REDIS = require("redis");
+const uuidv4 = require("uuid/v4");
+const EventEmitter = require("events").EventEmitter;
 
-var EventEmitter = require("events").EventEmitter;
+const Dispatcher = new EventEmitter();
+let client;
+let setting;
+const DEBUG = global.VARS ? global.VARS.debug : false;
 
-var Dispatcher = new EventEmitter();
-var client;
-var setting;
-var DEBUG = global.VARS ? global.VARS.debug : false;
+
 
 exports.isConnected = function() {
     return client && client.__working == true;
@@ -23,13 +25,27 @@ function setExpire(key, val) {
     }
 }
 
-var EXPIRED_MAP = {};
+const EXPIRED_MAP = {};
 
-var CACHE_PREFIX = "CACHE_";
+const CACHE_PREFIX = "CACHE_";
 
-var SEP = ".";
+let SEP = ".";
 
-const LOCK_KEY_PREFIX = "RDS_LOCK";
+const lockScript = 'return redis.call("set", KEYS[1], ARGV[1], "NX", "PX", ARGV[2])';
+const unlockScript = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+const extendScript = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pexpire", KEYS[1], ARGV[2]) else return 0 end';
+const LOCK_OPTIONS = {
+	driftFactor: 0.01,      //锁过期漂移因子
+	retryCount:  10,        //重试次数
+	retryDelay:  200,       //重试延迟
+    retryJitter: 100,       //重试延迟随机因素
+    ttl: 12000              //默认12秒过期
+}
+const LOCK_MAP = {
+    'total': 0
+};
+let totalLockWaitNum = 10000; //默认锁处理最大等待数 1kb
+let singleLockWaitNum = 1000; //默认锁处理最大等待数 1kb
 
 exports.addEventListener = function(type, handler) {
     Dispatcher.addListener(type, handler);
@@ -488,48 +504,119 @@ exports.rateLimit = function( redisKey, duration, times , callback ){
     });
 }
 
-exports.checkLock = function(lockKey, callBack, timeout = 10 ) {
+
+/**
+ * @description 获取一个锁操作
+ * @param {string} key 资源id
+ * @param {object} options 配置
+ * @param {number} options.driftFactor 锁过期漂移因子
+ * @param {number} options.retryCount 重试次数 -1 无限重试
+ * @param {number} options.retryDelay 重试延迟 毫秒
+ * @param {number} options.retryJitter 重试延迟随机因素 毫秒
+ * @param {number} options.ttl 锁有效期 毫秒
+ */
+exports.getLocker = function( key, options ){
+    const uuid = uuidv4();
+    const lockKey = exports.join(key);
+    return new Locker( lockKey, uuid, options );
+}
+
+exports.setLockOption = function( options ){
+    if( options.totalLockWaitNum ){
+        totalLockWaitNum = options.totalLockWaitNum;
+    }else{
+        singleLockWaitNum = options.singleLockWaitNum;
+    }
+}
+
+exports.eval = function( script, ...args ){
+    return new Promise( (resolve, reject)=>{
+        try{
+            client.eval( script, ...args, function( err, response ){
+                if( err ){
+                    return reject( err );
+                }else{
+                    return resolve( response );
+                }
+            });
+        }catch(err){
+            reject(err);
+        }
+    } );
+}
+
+exports.checkLock = function( locker ) {
     return new Promise( async function (resolve, reject) {
-        const now = Date.now();
-        lockKey = exports.join(lockKey);
-        try {
-            const lockFlag = await exports.do("SETNX", [ lockKey, now ] );
-            const isLocked = lockFlag === 0;
-            if( isLocked ){
-                DEBUG && console.log(`found lock, wait ---> lock key: ${lockKey}`);
-                reject( new Error("locked") );
-            }else{
-                await exports.do("EXPIRE", [ lockKey , timeout ] );
-                if (callBack) return callBack();
+        try{
+            let lockResult;
+            locker.expiration = Date.now() + locker.ttl;
+            if( !locker.locked ){    //
+                lockResult = await exports.eval( lockScript, 1, locker.key, locker.uuid, locker.orgTTL );
+            }else{                  //已经上锁,延时
+                locker.attempts = 0;    //重置尝试次数
+                lockResult = await exports.eval( extendScript, 1, locker.key, locker.uuid, locker.orgTTL );
+            }
+            if( lockResult && locker.expiration > Date.now() ){   //取锁成功
+                locker.locked = true;
+                if( locker.attempts > 0 ){ //重试成功
+                    //减少统计次数
+                    LOCK_MAP.total--;
+                    LOCK_MAP[locker.key]--;
+                }
                 return resolve();
+            }else{              //
+                const totalWaitNum = LOCK_MAP.total;       //总等待数
+                const keyWaitNum = LOCK_MAP[locker.key];    //单个资源等待数
+                if( locker.attempts === 0 ){      //第一次尝试
+                    if( totalWaitNum >= totalLockWaitNum ){
+                        return reject( new Error("total lock limited") );
+                    }
+                    if( keyWaitNum && keyWaitNum > singleLockWaitNum ){
+                        return reject( new Error("resource limited") );
+                    }
+                    //增加统计次数
+                    LOCK_MAP.total++;
+                    if( LOCK_MAP[locker.key] ){
+                        LOCK_MAP[locker.key]++;
+                    }else{
+                        LOCK_MAP[locker.key] = 1;
+                    }
+                }else if( locker.retryCount !== -1 && locker.attempts >= locker.retryCount ){
+                      //减少统计次数
+                      LOCK_MAP.total--;
+                      LOCK_MAP[locker.key]--;
+                    return reject( new Error("max retry") );
+                }
+                locker.attempts++;  //重试次数加一
+                setTimeout( function( _locker ){
+                    exports.checkLock( _locker ).then( resolve ).catch( reject );
+                }, locker.retryDelay, locker );
             }
-        }catch (err) {
-            console.error(`check lock *${lockKey}* error ---> ${err}`);
-            try {
-              await exports.do( "DEL", [ lockKey ] );
-            }catch (e) {
-              console.error(`del lock *${lockKey}* error ---> ${e}`);
-            }
-            if (callBack) return callBack(err);
-            return reject(err);
+        }catch(err){
+            reject(err);
         }
     });
 }
 
-exports.releaseLock = function(lockKey, callBack) {
+exports.getLockStat = function(){
+    return LOCK_MAP;
+}
+
+exports.releaseLock = function( locker ) {
     return new Promise(async function (resolve, reject) {
         try{
-            await exports.del(lockKey);
-            if (callBack) return callBack();
-            resolve();
+            let response = await exports.eval( unlockScript, 1, locker.key, locker.uuid );
+            if(typeof response === 'string')
+				response = parseInt(response);
+			if(response === 0 || response === 1){
+                return resolve();
+            }else{
+                reject( new Error(`relase lock err *${response}`) );
+            }
+
         }catch (err) {
             if (err) console.error(`release lock *${lockKey}* error ---> ${err}`);
-            if (callBack) return callBack(err);
-            if (err) {
-                reject(err);
-            } else {
-                resolve();
-            }
+            reject(err);
         }
     });
 }
@@ -603,4 +690,67 @@ exports.start = function(option, callBack) {
             client.__startCallBack = null;
         }
     });
+}
+
+
+
+class Locker{
+    /**
+     *
+     * @param {string} key 资源id
+     * @param {string} uuid 锁id
+     * @param {object} options 配置
+     * @param {number} options.driftFactor 锁过期漂移因子
+     * @param {number} options.retryCount 重试次数 -1 无限重试
+     * @param {number} options.retryDelay 重试延迟 毫秒
+     * @param {number} options.retryJitter 重试延迟随机因素 毫秒
+     * @param {number} options.ttl 锁有效期 毫秒
+     */
+    constructor( key, uuid, options = {} ){
+        this.key = key;         //资源id
+        this.uuid = uuid;       //锁id
+        const defaultOption = Object.assign({},LOCK_OPTIONS);
+        this.options = Object.assign( defaultOption, options ); //配置信息
+        this.attempts = 0;      //重试次数
+	    const drift = Math.round(this.options.driftFactor * this.options.ttl) + 2;
+        this.ttl = this.options.ttl - drift;
+        this.expiration = 0;    //过期时间戳
+        this.locked = false;
+    }
+
+    get orgTTL(){
+        return this.options.ttl;
+    }
+
+    get retryCount(){
+        return this.options.retryCount;
+    }
+
+    /**
+     * @description 解锁
+     */
+    async unlock(){
+        await exports.releaseLock(this);
+        this.locked = false;
+    }
+
+    /**
+     * @description 获取锁
+     * @param {number|null} ttl 锁有效期 毫秒
+     */
+    async lock( ttl ){
+        if(ttl){
+            const drift = Math.round( this.options.driftFactor * ttl ) + 2;
+            this.ttl = ttl - drift;
+        }
+        await exports.checkLock(this);
+        this.locked = true;
+    }
+
+    get retryDelay(){
+        return Math.max(0, this.options.retryDelay + Math.floor((Math.random() * 2 - 1) * this.options.retryJitter));
+    }
+
+
+
 }
