@@ -562,6 +562,7 @@ exports.checkLock = function( locker ) {
                     //减少统计次数
                     LOCK_MAP.total--;
                     LOCK_MAP[locker.key]--;
+                    if( LOCK_MAP[locker.key] <= 0 ) delete LOCK_MAP[locker.key];
                 }
                 return resolve();
             }else{              //
@@ -585,6 +586,7 @@ exports.checkLock = function( locker ) {
                       //减少统计次数
                       LOCK_MAP.total--;
                       LOCK_MAP[locker.key]--;
+                      if( LOCK_MAP[locker.key] <= 0 ) delete LOCK_MAP[locker.key];
                     return reject( new Error("max retry") );
                 }
                 locker.attempts++;  //重试次数加一
