@@ -34,6 +34,7 @@ let SEP = ".";
 const lockScript = 'return redis.call("set", KEYS[1], ARGV[1], "NX", "PX", ARGV[2])';
 const unlockScript = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
 const extendScript = 'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("pexpire", KEYS[1], ARGV[2]) else return 0 end';
+const rateLimitScript = 'local current; current = redis.call("incr",KEYS[1]); if tonumber(current) == 1 then redis.call("PEXPIRE",KEYS[1],ARGV[1]) end; return current;';
 const LOCK_OPTIONS = {
 	driftFactor: 0.01,      //锁过期漂移因子
 	retryCount:  10,        //重试次数
@@ -487,11 +488,8 @@ exports.join = function(key, preKey) {
 exports.rateLimit = function( redisKey, duration, times , callback ){
     return new Promise(async (resolve, reject)=>{
         try {
-            const fullThrottleKey = exports.join( redisKey + "_redisLock");
-            const curVal = await exports.do("INCR" , [ fullThrottleKey ]);
-            if( Number(curVal) === 1 ){
-                await exports.do("PEXPIRE" , [ fullThrottleKey, duration ]);
-            }
+            const fullThrottleKey = exports.join( redisKey + "_lmt");
+            const curVal = await exports.eval( rateLimitScript, 1, fullThrottleKey, duration );
             if( curVal > times ){
                 throw new Error("req limited!");
             }
@@ -560,9 +558,7 @@ exports.checkLock = function( locker ) {
                 locker.locked = true;
                 if( locker.attempts > 0 ){ //重试成功
                     //减少统计次数
-                    LOCK_MAP.total--;
-                    LOCK_MAP[locker.key]--;
-                    if( LOCK_MAP[locker.key] <= 0 ) delete LOCK_MAP[locker.key];
+                    descLockMap(locker.key);
                 }
                 return resolve();
             }else{              //
@@ -576,17 +572,10 @@ exports.checkLock = function( locker ) {
                         return reject( new Error("resource limited") );
                     }
                     //增加统计次数
-                    LOCK_MAP.total++;
-                    if( LOCK_MAP[locker.key] ){
-                        LOCK_MAP[locker.key]++;
-                    }else{
-                        LOCK_MAP[locker.key] = 1;
-                    }
+                    incLockMap(locker.key);
                 }else if( locker.retryCount !== -1 && locker.attempts >= locker.retryCount ){
                       //减少统计次数
-                      LOCK_MAP.total--;
-                      LOCK_MAP[locker.key]--;
-                      if( LOCK_MAP[locker.key] <= 0 ) delete LOCK_MAP[locker.key];
+                      descLockMap(locker.key);
                     return reject( new Error("max retry") );
                 }
                 locker.attempts++;  //重试次数加一
@@ -598,6 +587,21 @@ exports.checkLock = function( locker ) {
             reject(err);
         }
     });
+}
+
+function incLockMap( key ){
+    LOCK_MAP.total++;
+    if( LOCK_MAP[key] ){
+        LOCK_MAP[key]++;
+    }else{
+        LOCK_MAP[key] = 1;
+    }
+}
+
+function descLockMap( key ){
+    LOCK_MAP.total--;
+    LOCK_MAP[key]--;
+    if( LOCK_MAP[key] <= 0 ) delete LOCK_MAP[key];
 }
 
 exports.getLockStat = function(){
