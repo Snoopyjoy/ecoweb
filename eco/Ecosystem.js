@@ -85,7 +85,7 @@ function addServer( serverID ){
 
 function ping(){
     if( ecoID ){
-        const handlers = Promise.all[updateOnlineServers, Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] )];
+        const handlers = Promise.all([updateOnlineServers, Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] )]);
         handlers.then(()=>{}).catch((err)=>{
             console.error( "ecosystem ping err:", err )
         })
