@@ -83,10 +83,12 @@ function addServer( serverID ){
     }
 }
 
-async function ping(){
+function ping(){
     if( ecoID ){
-        await updateOnlineServers();
-        await Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] );
+        const handlers = Promise.all[updateOnlineServers, Redis.do( "ZADD", [ Redis.join( `@common->${EcoRedisKey}` ), Date.now(), ecoID ] )];
+        handlers.then(()=>{}).catch((err)=>{
+            console.error( "ecosystem ping err:", err )
+        })
     }
 }
 

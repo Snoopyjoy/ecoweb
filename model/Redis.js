@@ -460,9 +460,6 @@ exports.on = function (event, handler) {
 }
 
 exports.join = function(key, preKey) {
-    var redisKey = KEY_CACHE[key];
-    if (redisKey) return redisKey;
-
     var group = "*";
     if (key.charAt(0) == "@" && GROUP_REG.test(key)) {
         var g = key.match(GROUP_REG);
@@ -473,10 +470,8 @@ exports.join = function(key, preKey) {
         }
         else return null;
     }
-
     var prefix = groups[group];
-    KEY_CACHE[redisKey] = prefix + (preKey || "") + key;
-    return KEY_CACHE[redisKey];
+    return prefix + (preKey || "") + key;
 }
 
 /**
@@ -605,7 +600,7 @@ function descLockMap( key ){
 }
 
 exports.getLockStat = function(){
-    return LOCK_MAP;
+    return Object.assign({},LOCK_MAP);
 }
 
 exports.releaseLock = function( locker ) {
@@ -629,7 +624,6 @@ exports.releaseLock = function( locker ) {
 
 var groups = {};
 
-var KEY_CACHE = {};
 var GROUP_REG = /@[a-zA-Z0-9]+->/;
 
 exports.createClient = function(config, connectCallback) {
